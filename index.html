@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Store Rating Platform</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useContext, createContext } = React;
+        const API_URL = 'http://localhost:3000';
+
+        const AuthContext = createContext();
+
+        const useAuth = () => useContext(AuthContext);
+
+        function AuthProvider({ children }) {
+            const [user, setUser] = useState(null);
+            const [token, setToken] = useState(localStorage.getItem('token'));
+
+            useEffect(() => {
+                if (token) {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    setUser({ id: payload.sub, email: payload.email, role: payload.role });
+                }
+            }, [token]);
+
+            const login = (userData, userToken) => {
+                setUser(userData);
+                setToken(userToken);
+                localStorage.setItem('token', userToken);
+            };
+
+            const logout = () => {
+                setUser(null);
+                setToken(null);
+                localStorage.removeItem('token');
+            };
+
+            return (
+                <AuthContext.Provider value={{ user, token, login, logout }}>
+                    {children}
+                </AuthContext.Provider>
+            );
+        }
+
+        function App() {
+            const [page, setPage] = useState('login');
+            const { user } = useAuth();
+
+            useEffect(() => {
+                if (user) {
+                    if (user.role === 'System Administrator') setPage('admin');
+                    else if (user.role === 'Normal User') setPage('user');
+                    else if (user.role === 'Store Owner') setPage('owner');
+                } else {
+                    setPage('login');
+                }
+            }, [user]);
+
+            return (
+                <div className="min-h-screen bg-gray-50">
+                    {user && <Navbar setPage={setPage} />}
+                    {page === 'login' && <LoginPage setPage={setPage} />}
+                    {page === 'signup' && <SignupPage setPage={setPage} />}
+                    {page === 'admin' && <AdminDashboard />}
+                    {page === 'user' && <UserDashboard />}
+                    {page === 'owner' && <OwnerDashboard />}
+                </div>
+            );
+        }
+
+        function Navbar({ setPage }) {
+            const { user, logout } = useAuth();
+
+            return (
+                <nav className="bg-blue-600 text-white p-4 shadow-lg">
+                    <div className="container mx-auto flex justify-between items-center">
+                        <h1 className="text-2xl font-bold">Store Rating Platform</h1>
+                        <div className="flex gap-4 items-center">
+                            <span className="text-sm">{user.email} ({user.role})</span>
+                            <button onClick={logout} className="bg-red-500 px-4 py-2 rounded hover:bg-red-600">
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+                </nav>
+            );
+        }
+
+        function LoginPage({ setPage }) {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+            const { login } = useAuth();
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setError('');
+
+                if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+                    setError('Invalid email format');
+                    return;
+                }
+
+                try {
+                    const res = await fetch(`${API_URL}/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password }),
+                    });
+
+                    if (!res.ok) throw new Error('Invalid credentials');
+
+                    const data = await res.json();
+                    login(data.user, data.token);
+                } catch (err) {
+                    setError(err.message);
+                }
+            };
+
+            return (
+                <div className="flex items-center justify-center min-h-screen">
+                    <div className="bg-white p-8 rounded-lg shadow-md w-96">
+                        <h2 className="text-2xl font-bold mb-6">Login</h2>
+                        {error && <div className="bg-red-100 text-red-700 p-2 rounded mb-4">{error}</div>}
+                        <form onSubmit={handleSubmit}>
+                            <input
+                                type="email"
+                                placeholder="Email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                className="w-full p-2 border rounded mb-4"
+                                required
+                            />
+                            <input
+                                type="password"
+                                placeholder="Password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="w-full p-2 border rounded mb-4"
+                                required
+                            />
+                            <button type="submit" className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700">
+                                Login
+                            </button>
+                        </form>
+                        <p className="mt-4 text-center">
+                            Don't have an account?{' '}
+                            <button onClick={() => setPage('signup')} className="text-blue-600 hover:underline">
+                                Sign up
+                            </button>
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        function SignupPage({ setPage }) {
+            const [formData, setFormData] = useState({ name: '', email: '', password: '', address: '' });
+            const [error, setError] = useState('');
+            const { login } = useAuth();
+
+            const validate = () => {
+                if (formData.name.length < 20 || formData.name.length > 60) {
+                    return 'Name must be 20-60 characters';
+                }
+                if (!formData.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+                    return 'Invalid email format';
+                }
+                if (formData.password.length < 8 || formData.password.length > 16) {
+                    return 'Password must be 8-16 characters';
+                }
+                if (!/[A-Z]/.test(formData.password) || !/[!@#$%^&*]/.test(formData.password)) {
+                    return 'Password must contain at least one uppercase letter and one special character';
+                }
+                if (formData.address.length > 400) {
+                    return 'Address must be less than 400 characters';
+                }
+                return null;
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                const validationError = validate();
+                if (validationError) {
+                    setError(validationError);
+                    return;
+                }
+                setError('');
+
+                try {
+                    const res = await fetch(`${API_URL}/auth/signup`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData),
+                    });
+
+                    if (!res.ok) throw new Error('Signup failed');
+
+                    const data = await res.json();
+                    login(data.user, data.token);
+                } catch (err) {
+                    setError(err.message);
+                }
+            };
+
+            return (
+                <div className="flex items-center justify-center min-h-screen">
+                    <div className="bg-white p-8 rounded-lg shadow-md w-96">
+                        <h2 className="text-2xl font-bold mb-6">Sign Up</h2>
+                        {error && <div className="bg-red-100 text-red-700 p-2 rounded mb-4">{error}</div>}
+                        <form onSubmit={handleSubmit}>
+                            <input
+                                type="text"
+                                placeholder="Name (20-60 characters)"
+                                value={formData.name}
+                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                className="w-full p-2 border rounded mb-4"
+                                required
+                            />
+                            <input
+                                type="email"
+                                placeholder="Email"
+                                value={formData.email}
+                                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                className="w-full p-2 border rounded mb-4"
+                                required
+                            />
+                            <input
+                                type="password"
+                                placeholder="Password (8-16 chars, 1 uppercase, 1 special)"
+                                value={formData.password}
+                                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                className="w-full p-2 border rounded mb-4"
+                                required
+                            />
+                            <textarea
+                                placeholder="Address (max 400 characters)"
+                                value={formData.address}
+                                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                                className="w-full p-2 border rounded mb-4"
+                                rows="3"
+                                required
+                            />
+                            <button type="submit" className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700">
+                                Sign Up
+                            </button>
+                        </form>
+                        <p className="mt-4 text-center">
+                            Already have an account?{' '}
+                            <button onClick={() => setPage('login')} className="text-blue-600 hover:underline">
+                                Login
+                            </button>
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        function AdminDashboard() {
+            const [stats, setStats] = useState({ users: 0, stores: 0, ratings: 0 });
+            const [view, setView] = useState('users');
+            const [users, setUsers] = useState([]);
+            const [stores, setStores] = useState([]);
+            const [filters, setFilters] = useState({ name: '', email: '', role: '' });
+            const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+            const { token } = useAuth();
+
+            useEffect(() => {
+                fetchStats();
+                fetchUsers();
+                fetchStores();
+            }, []);
+
+            const fetchStats = async () => {
+                try {
+                    const [usersRes, storesRes] = await Promise.all([
+                        fetch(`${API_URL}/users`, { headers: { Authorization: `Bearer ${token}` } }),
+                        fetch(`${API_URL}/stores`, { headers: { Authorization: `Bearer ${token}` } }),
+                    ]);
+                    const usersData = await usersRes.json();
+                    const storesData = await storesRes.json();
+                    const totalRatings = storesData.reduce((sum, store) => sum + (store.ratings?.length || 0), 0);
+                    setStats({ users: usersData.length, stores: storesData.length, ratings: totalRatings });
+                } catch (err) {
+                    console.error('Error fetching stats:', err);
+                }
+            };
+
+            const fetchUsers = async () => {
+                try {
+                    const params = new URLSearchParams(filters);
+                    const res = await fetch(`${API_URL}/users?${params}`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    });
+                    const data = await res.json();
+                    setUsers(data);
+                } catch (err) {
+                    console.error('Error fetching users:', err);
+                }
+            };
+
+            const fetchStores = async () => {
+                try {
+                    const res = await fetch(`${API_URL}/stores`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    });
+                    const data = await res.json();
+                    setStores(data);
+                } catch (err) {
+                    console.error('Error fetching stores:', err);
+                }
+            };
+
+            const handleSort = (key) => {
+                let direction = 'asc';
+                if (sortConfig.key === key && sortConfig.direction === 'asc') {
+                    direction = 'desc';
+                }
+                setSortConfig({ key, direction });
+            };
+
+            const sortedData = () => {
+                const data = view === 'users' ? [...users] : [...stores];
+                if (!sortConfig.key) return data;
+
+                return data.sort((a, b) => {
+                    if (a[sortConfig.key] < b[sortConfig.key]) {
+                        return sortConfig.direction === 'asc' ? -1 : 1;
+                    }
+                    if (a[sortConfig.key] > b[sortConfig.key]) {
+                        return sortConfig.direction === 'asc' ? 1 : -1;
+                    }
+                    return 0;
+                });
+            };
+
+            return (
+                <div className="container mx-auto p-6">
+                    <h2 className="text-3xl font-bold mb-6">Admin Dashboard</h2>
+
+                    <div className="grid grid-cols-3 gap-4 mb-8">
+                        <div className="bg-white p-6 rounded-lg shadow">
+                            <h3 className="text-gray-500 text-sm">Total Users</h3>
+                            <p className="text-3xl font-bold">{stats.users}</p>
+                        </div>
+                        <div className="bg-white p-6 rounded-lg shadow">
+                            <h3 className="text-gray-500 text-sm">Total Stores</h3>
+                            <p className="text-3xl font-bold">{stats.stores}</p>
+                        </div>
+                        <div className="bg-white p-6 rounded-lg shadow">
+                            <h3 className="text-gray-500 text-sm">Total Ratings</h3>
+                            <p className="text-3xl font-bold">{stats.ratings}</p>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex gap-4 mb-4">
+                            <button
+                                onClick={() => setView('users')}
+                                className={`px-4 py-2 rounded ${view === 'users' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+                            >
+                                Users
+                            </button>
+                            <button
+                                onClick={() => setView('stores')}
+                                className={`px-4 py-2 rounded ${view === 'stores' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+                            >
+                                Stores
+                            </button>
+                        </div>
+
+                        {view === 'users' && (
+                            <div className="mb-4 flex gap-2">
+                                <input
+                                    type="text"
+                                    placeholder="Filter by name"
+                                    value={filters.name}
+                                    onChange={(e) => setFilters({ ...filters, name: e.target.value })}
+                                    className="p-2 border rounded"
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="Filter by email"
+                                    value={filters.email}
+                                    onChange={(e) => setFilters({ ...filters, email: e.target.value })}
+                                    className="p-2 border rounded"
+                                />
+                                <select
+                                    value={filters.role}
+                                    onChange={(e) => setFilters({ ...filters, role: e.target.value })}
+                                    className="p-2 border rounded"
+                                >
+                                    <option value="">All Roles</option>
+                                    <option value="System Administrator">System Administrator</option>
+                                    <option value="Normal User">Normal User</option>
+                                    <option value="Store Owner">Store Owner</option>
+                                </select>
+                                <button onClick={fetchUsers} className="bg-blue-600 text-white px-4 py-2 rounded">
+                                    Apply
+                                </button>
+                            </div>
+                        )}
+
+                        <table className="w-full">
+                            <thead>
+                                <tr className="border-b">
+                                    {view === 'users' ? (
+                                        <>
+                                            <th className="text-left p-2 cursor-pointer" onClick={() => handleSort('name')}>
+                                                Name {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                                            </th>
+                                            <th className="text-left p-2 cursor-pointer" onClick={() => handleSort('email')}>
+                                                Email {sortConfig.key === 'email' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                                            </th>
+                                            <th className="text-left p-2 cursor-pointer" onClick={() => handleSort('role')}>
+                                                Role {sortConfig.key === 'role' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                                            </th>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <th className="text-left p-2 cursor-pointer" onClick={() => handleSort('name')}>
+                                                Name {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                                            </th>
+                                            <th className="text-left p-2 cursor-pointer" onClick={() => handleSort('email')}>
+                                                Email {sortConfig.key === 'email' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                                            </th>
+                                            <th className="text-left p-2 cursor-pointer" onClick={() => handleSort('address')}>
+                                                Address {sortConfig.key === 'address' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                                            </th>
+                                        </>
+                                    )}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sortedData().map((item) => (
+                                    <tr key={item.id} className="border-b">
+                                        <td className="p-2">{item.name}</td>
+                                        <td className="p-2">{item.email}</td>
+                                        <td className="p-2">{view === 'users' ? item.role : item.address}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        function UserDashboard() {
+            const [stores, setStores] = useState([]);
+            const [search, setSearch] = useState('');
+            const [filteredStores, setFilteredStores] = useState([]);
+            const { token, user } = useAuth();
+
+            useEffect(() => {
+                fetchStores();
+            }, []);
+
+            useEffect(() => {
+                const filtered = stores.filter(
+                    (store) =>
+                        store.name.toLowerCase().includes(search.toLowerCase()) ||
+                        store.address.toLowerCase().includes(search.toLowerCase())
+                );
+                setFilteredStores(filtered);
+            }, [search, stores]);
+
+            const fetchStores = async () => {
+                try {
+                    const res = await fetch(`${API_URL}/stores`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    });
+                    const data = await res.json();
+                    setStores(data);
+                } catch (err) {
+                    console.error('Error fetching stores:', err);
+                }
+            };
+
+            const handleRating = async (storeId, rating) => {
+                try {
+                    await fetch(`${API_URL}/ratings`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ storeId, rating }),
+                    });
+                    fetchStores();
+                } catch (err) {
+                    console.error('Error submitting rating:', err);
+                }
+            };
+
+            const getAverageRating = (ratings) => {
+                if (!ratings || ratings.length === 0) return 0;
+                const sum = ratings.reduce((acc, r) => acc + r.rating, 0);
+                return (sum / ratings.length).toFixed(1);
+            };
+
+            const getUserRating = (ratings) => {
+                if (!ratings) return null;
+                const userRating = ratings.find((r) => r.userId === user.id);
+                return userRating?.rating || null;
+            };
+
+            return (
+                <div className="container mx-auto p-6">
+                    <h2 className="text-3xl font-bold mb-6">Browse Stores</h2>
+
+                    <input
+                        type="text"
+                        placeholder="Search by name or address..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="w-full p-3 border rounded-lg mb-6"
+                    />
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {filteredStores.map((store) => (
+                            <div key={store.id} className="bg-white p-6 rounded-lg shadow">
+                                <h3 className="text-xl font-bold mb-2">{store.name}</h3>
+                                <p className="text-gray-600 mb-2">{store.address}</p>
+                                <div className="mb-4">
+                                    <p className="text-sm text-gray-500">
+                                        Average Rating: {getAverageRating(store.ratings)} / 5
+                                    </p>
+                                    {getUserRating(store.ratings) && (
+                                        <p className="text-sm text-blue-600">Your Rating: {getUserRating(store.ratings)} / 5</p>
+                                    )}
+                                </div>
+                                <div className="flex gap-1">
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                        <button
+                                            key={star}
+                                            onClick={() => handleRating(store.id, star)}
+                                            className={`text-2xl ${getUserRating(store.ratings) >= star ? 'text-yellow-500' : 'text-gray-300'
+                                                }`}
+                                        >
+                                            ★
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        function OwnerDashboard() {
+            const [stores, setStores] = useState([]);
+            const { token } = useAuth();
+
+            useEffect(() => {
+                fetchStores();
+            }, []);
+
+            const fetchStores = async () => {
+                try {
+                    const res = await fetch(`${API_URL}/stores`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    });
+                    const data = await res.json();
+                    setStores(data);
+                } catch (err) {
+                    console.error('Error fetching stores:', err);
+                }
+            };
+
+            const getAverageRating = (ratings) => {
+                if (!ratings || ratings.length === 0) return 0;
+                const sum = ratings.reduce((acc, r) => acc + r.rating, 0);
+                return (sum / ratings.length).toFixed(1);
+            };
+
+            return (
+                <div className="container mx-auto p-6">
+                    <h2 className="text-3xl font-bold mb-6">My Stores</h2>
+
+                    {stores.map((store) => (
+                        <div key={store.id} className="bg-white p-6 rounded-lg shadow mb-6">
+                            <h3 className="text-2xl font-bold mb-2">{store.name}</h3>
+                            <p className="text-gray-600 mb-4">{store.address}</p>
+                            <p className="text-lg mb-4">
+                                Average Rating: <span className="font-bold">{getAverageRating(store.ratings)} / 5</span>
+                            </p>
+
+                            <h4 className="font-bold mb-2">Ratings from Users:</h4>
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b">
+                                        <th className="text-left p-2">User Name</th>
+                                        <th className="text-left p-2">User Email</th>
+                                        <th className="text-left p-2">Rating</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {store.ratings && store.ratings.map((rating) => (
+                                        <tr key={rating.id} className="border-b">
+                                            <td className="p-2">{rating.user?.name}</td>
+                                            <td className="p-2">{rating.user?.email}</td>
+                                            <td className="p-2">{rating.rating} / 5</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(
+            <AuthProvider>
+                <App />
+            </AuthProvider>
+        );
+    </script>
+</body>
+
+</html>
